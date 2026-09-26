@@ -1,101 +1,303 @@
 # radio
 
-Radio is a remote, voice-oriented control plane for coding agents. The Rust daemon owns the coding-agent process; the mobile web client sends prompts and receives output over HTTP/WebSocket.
+> A voice-first remote control plane for coding agents.
 
-## Local development
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20iOS-lightgrey.svg)]()
+[![Daemon: Rust](https://img.shields.io/badge/Daemon-Rust-orange.svg)]()
+[![Client: React](https://img.shields.io/badge/Client-React%20%2B%20TypeScript-blue.svg)]()
 
-Start Radio against the repository you want the agent to control:
+`radio` is a lightweight remote interface for controlling coding agents from your phone. A **Rust**, **Tokio**, and **Axum** daemon runs next to your repository and owns the agent process, while a mobile-first **React** client lets you talk, send prompts, stream responses, hear completed answers, stop work, and inspect Git diffs from Safari.
 
-```sh
+Radio is designed around a simple idea: your development machine remains the execution environment; your phone becomes the control plane.
+
+---
+
+## Table of Contents
+
+- [Overview & Architecture](#overview--architecture)
+- [Installation](#installation)
+  - [Daemon](#daemon)
+  - [Mobile Client](#mobile-client)
+- [Quick Start](#quick-start)
+- [Key Features](#key-features)
+- [Voice Workflow](#voice-workflow)
+- [Remote Access with Tailscale](#remote-access-with-tailscale)
+- [Protocol & Endpoints](#protocol--endpoints)
+- [Security Model](#security-model)
+- [Development](#development)
+- [License](#license)
+
+---
+
+## Overview & Architecture
+
+```text
+                    iPhone / Safari
+                          │
+                Speech Recognition / TTS
+                          │
+                          ▼
+                 React + TypeScript
+                          │
+                   HTTP / WebSocket
+                          │
+                   Tailscale tailnet
+                          │
+                          ▼
+                ┌───────────────────┐
+                │   radio daemon    │
+                │   Rust + Axum     │
+                │                   │
+                │ Session Manager   │
+                │ Agent Protocol    │
+                │ Git Diff          │
+                └─────────┬─────────┘
+                          │
+                          ▼
+                     Codex CLI
+                          │
+                          ▼
+                    local repo
+```
+
+The phone never becomes the development environment. Source files, credentials, Git state, shell access, and the coding-agent process remain on the host machine. Radio only transports commands, status, text output, and repository diffs between the two.
+
+---
+
+## Installation
+
+### Daemon
+
+Clone and build Radio with Cargo:
+
+```bash
+git clone https://github.com/delaudio/radio.git
+cd radio
+cargo build --release
+```
+
+Start the daemon against the repository you want Codex to control:
+
+```bash
 cargo run -- serve /path/to/repository
 ```
 
-The daemon listens on `127.0.0.1:8787` by default. The Vite development server proxies `/sessions`, `/diff`, `/health`, and WebSocket traffic to that local daemon.
+Radio listens on `127.0.0.1:8787` by default.
 
-In another terminal:
+### Mobile Client
 
-```sh
+Install the web client dependencies:
+
+```bash
 cd web
 npm install
 npm run dev
 ```
 
-Open the Vite URL shown in the terminal.
+The Vite development server proxies HTTP and WebSocket traffic to the local Rust daemon.
 
-## Remote access with Tailscale
+---
 
-The MVP is designed to be reached over a private Tailscale tailnet rather than by opening a public internet port. Install Tailscale on both the host Mac and the iPhone, sign both devices into the same tailnet, and confirm they can see each other in Tailscale.
+## Quick Start
 
-### 1. Start the daemon on the Mac
+Start the daemon:
 
-Keep the Rust daemon bound to localhost. The phone does not need direct access to port 8787 because Vite proxies API and WebSocket traffic:
-
-```sh
-cargo run -- serve /path/to/repository
+```bash
+cargo run -- serve ~/Developer/my-project
 ```
 
-### 2. Start the mobile web client
+Start the client in another terminal:
 
-Vite is configured with `host: true`, so it listens on network interfaces while forwarding Radio traffic to `127.0.0.1:8787`:
-
-```sh
+```bash
 cd web
-npm install
 npm run dev
 ```
 
-By default Vite normally uses port `5173`. Use the actual port printed by Vite if it chooses another one.
+Open the Vite URL on your phone. From the mobile interface you can:
 
-### 3. Find the Mac tailnet address
+- create a Codex session;
+- type a prompt or hold the voice control to dictate one;
+- edit the transcript before sending;
+- watch agent output stream back in real time;
+- hear the final response through client-side text-to-speech;
+- stop the active agent;
+- inspect the current working-tree diff.
 
-On the Mac you can use its Tailscale IPv4 address:
+---
 
-```sh
+## Key Features
+
+### 🎙 Voice-First Control
+- **Push to Talk**: Dictate instructions using browser speech recognition.
+- **Editable Transcript**: Voice input lands in the same composer as typed prompts.
+- **Local Audio Boundary**: Radio sends recognized text to the daemon, not microphone audio.
+
+### 🔊 Spoken Responses
+- **Client-Side TTS**: Completed responses can be read aloud by the phone.
+- **Noise Reduction**: Streaming terminal output is not spoken line by line.
+- **Immediate Mute**: Active speech can be stopped at any time.
+
+### ⚡ Persistent Agent Sessions
+- **Long-Lived Codex Process**: Multiple prompts can be sent to the same session.
+- **Reconnect Friendly**: Closing the mobile WebSocket does not immediately kill Codex.
+- **Graceful Cleanup**: Radio stops managed child processes when the daemon shuts down.
+
+### ↔ Real-Time WebSocket Protocol
+- **Streaming Output**: Agent output is forwarded incrementally to connected clients.
+- **Small Message Model**: Prompt, stop, status, output, error, and done events.
+- **Transport Separation**: Agent lifecycle is independent from the mobile UI.
+
+### ± Git Diff Inspection
+- **Read Only**: The mobile client can request `git diff` without mutating the repository.
+- **Mobile Rendering**: Added, removed, and hunk lines are visually separated.
+- **Automatic Refresh**: The diff refreshes after an agent task completes.
+
+### 🔐 Private Remote Access
+- **Tailscale First**: The intended MVP deployment stays inside a trusted tailnet.
+- **No Public Port Forwarding**: The Rust daemon can remain bound to localhost.
+- **Host Remains in Control**: Repository files and agent credentials never move to the phone.
+
+---
+
+## Voice Workflow
+
+```text
+Hold to talk
+     │
+     ▼
+Browser speech recognition
+     │
+     ▼
+Editable transcript
+     │
+     ▼
+WebSocket prompt
+     │
+     ▼
+Codex on the host
+     │
+     ├── streaming output ──► phone UI
+     │
+     └── completion ─────────► text-to-speech
+```
+
+Speech recognition and text-to-speech are progressive enhancements. If browser voice APIs are unavailable, the text composer remains fully usable.
+
+---
+
+## Remote Access with Tailscale
+
+Install Tailscale on both the host Mac and the iPhone and connect them to the same tailnet.
+
+Start Radio on the Mac while keeping the daemon on localhost:
+
+```bash
+cargo run -- serve /path/to/repository
+```
+
+Then start the Vite client:
+
+```bash
+cd web
+npm run dev
+```
+
+Find the Mac Tailscale address:
+
+```bash
 tailscale ip -4
 ```
 
-or its MagicDNS hostname if MagicDNS is enabled for the tailnet.
-
-### 4. Connect from the iPhone
-
-With Tailscale connected on the iPhone, open Safari and navigate to the Vite server on the Mac, for example:
+With Tailscale connected on the iPhone, open Safari using the Vite port shown in the terminal:
 
 ```text
 http://100.x.y.z:5173
 ```
 
-or, with MagicDNS:
+If MagicDNS is enabled, the Mac hostname can be used instead:
 
 ```text
 http://your-mac-name:5173
 ```
 
-The browser talks to Vite over the tailnet. Vite then proxies session creation, Git diff requests, and WebSocket traffic locally to the Radio daemon. No Radio port needs to be forwarded on the router or exposed to the public internet.
+Vite is the tailnet-facing development server. It proxies session, diff, health, and WebSocket traffic locally to Radio on `127.0.0.1:8787`. You do not need to expose the Rust daemon or configure router port forwarding.
 
-## Security model
+---
 
-Radio is not a read-only dashboard. A connected client can send instructions to a coding agent running with the permissions of the host user. Depending on the coding agent configuration, that can result in filesystem changes and shell commands.
+## Protocol & Endpoints
 
-For the MVP:
+| Endpoint | Method | Purpose |
+| :--- | :--- | :--- |
+| `/health` | `GET` | Daemon health check |
+| `/sessions` | `POST` | Create a Codex session |
+| `/sessions/{id}/ws` | `WebSocket` | Send prompts and receive realtime agent events |
+| `/diff` | `GET` | Read the current working-tree diff |
 
-- keep access restricted to a trusted Tailscale tailnet;
-- do not expose Vite or the Radio daemon directly to the public internet;
-- do not bind the Rust daemon to `0.0.0.0` merely to make phone access work; the Vite proxy makes that unnecessary;
-- treat access to the Radio UI as access to the configured repository and coding-agent session;
-- review agent permission and approval settings separately; Radio does not bypass or replace the agent safety controls.
+WebSocket client messages:
 
-Radio currently has no application-level authentication. Tailscale is therefore part of the MVP security boundary, not just a convenience.
+```json
+{ "type": "prompt", "text": "Refactor the sampler and run the tests" }
+```
 
-## Daemon configuration
+```json
+{ "type": "stop" }
+```
 
-For non-mobile/local use, host and port can still be changed explicitly:
+Server events use the same tagged JSON model: `status`, `output`, `error`, and `done`.
 
-```sh
+---
+
+## Security Model
+
+Radio is a remote control surface for a coding agent, not a read-only dashboard. A connected client can instruct an agent that may have filesystem and shell access under the permissions of the host user.
+
+For the current MVP:
+
+- keep Radio inside a trusted Tailscale tailnet;
+- do not expose Vite or the daemon directly to the public internet;
+- keep the Rust daemon on `127.0.0.1` for the normal mobile workflow;
+- treat access to the Radio UI as access to the configured repository and agent session;
+- keep the coding agent permission and approval controls enabled according to your own workflow.
+
+Radio currently has no application-level authentication. Tailscale is part of the MVP security boundary.
+
+---
+
+## Development
+
+### Rust daemon
+
+```bash
+cargo fmt --check
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo build
+```
+
+### Web client
+
+```bash
+cd web
+npm install
+npm run build
+npm run dev
+```
+
+Daemon host and port can be configured with flags:
+
+```bash
 cargo run -- serve /path/to/repository --host 127.0.0.1 --port 9000
 ```
 
-or with environment variables:
+or environment variables:
 
-```sh
+```bash
 RADIO_HOST=127.0.0.1 RADIO_PORT=9000 cargo run -- serve /path/to/repository
 ```
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
