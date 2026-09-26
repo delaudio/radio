@@ -1,1 +1,1 @@
-# radio
+# radio\n## Mobile web client\n\nRun the daemon, then start the Vite client:\n\n```sh\ncd web\nnpm install\nnpm run dev\n```\n\nOpen the Vite URL from the phone. The development server proxies `/sessions` and WebSocket traffic to Radio on `127.0.0.1:8787`. For a separately hosted client, set `VITE_RADIO_URL` to the daemon origin.\n
