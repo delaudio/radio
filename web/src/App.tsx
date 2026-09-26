@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { speechRecognitionConstructor, type SpeechRecognitionLike } from "./speech";
+import { speak, speechRecognitionConstructor, speechSynthesisAvailable, stopSpeaking, type SpeechRecognitionLike } from "./speech";
 
 type Connection = "idle" | "connecting" | "connected" | "disconnected" | "error";
 type ServerMessage = { type: "status"; status: string } | { type: "output"; text: string } | { type: "error"; message: string } | { type: "done" };
@@ -15,8 +15,10 @@ export function App() {
   const [output, setOutput] = useState<string[]>([]);
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string>();
+  const [muted, setMuted] = useState(false);
   const socket = useRef<WebSocket>();
   const recognition = useRef<SpeechRecognitionLike>();
+  const responseBuffer = useRef<string[]>([]);
   const voiceAvailable = Boolean(speechRecognitionConstructor());
 
   async function connect(id?: string) {
@@ -37,9 +39,13 @@ export function App() {
       ws.onmessage = ({ data }) => {
         const message = JSON.parse(data) as ServerMessage;
         if (message.type === "status") setAgentStatus(message.status);
-        if (message.type === "output") setOutput(lines => [...lines, message.text]);
-        if (message.type === "error") setOutput(lines => [...lines, `error: ${message.message}`]);
-        if (message.type === "done") setAgentStatus("done");
+        if (message.type === "output") { setOutput(lines => [...lines, message.text]); responseBuffer.current.push(message.text); }
+        if (message.type === "error") { setOutput(lines => [...lines, `error: ${message.message}`]); if (!muted) speak(`Radio error. ${message.message}`); }
+        if (message.type === "done") {
+          setAgentStatus("done");
+          if (!muted) speak(completionSpeech(responseBuffer.current));
+          responseBuffer.current = [];
+        }
       };
     } catch (error) {
       setConnection("error");
@@ -56,11 +62,21 @@ export function App() {
     event.preventDefault();
     const text = prompt.trim();
     if (!text || socket.current?.readyState !== WebSocket.OPEN) return;
+    stopSpeaking();
+    responseBuffer.current = [];
     socket.current.send(JSON.stringify({ type: "prompt", text }));
     setPrompt("");
   }
 
-  function stop() { socket.current?.send(JSON.stringify({ type: "stop" })); }
+  function stop() { stopSpeaking(); socket.current?.send(JSON.stringify({ type: "stop" })); }
+
+  function toggleMute() {
+    setMuted(value => {
+      const next = !value;
+      if (next) stopSpeaking();
+      return next;
+    });
+  }
 
   function startListening() {
     const Recognition = speechRecognitionConstructor();
@@ -90,7 +106,7 @@ export function App() {
   function stopListening() { recognition.current?.stop(); }
 
   return <main>
-    <header><div><span className={`dot ${connection}`} /> radio</div><small>{connection} · {agentStatus}</small></header>
+    <header><div><span className={`dot ${connection}`} /> radio</div><div className="status"><small>{connection} · {agentStatus}</small>{speechSynthesisAvailable() && <button className="mute" type="button" onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</button>}</div></header>
     <section className="terminal" aria-live="polite">{output.length ? output.map((line, i) => <div key={i}>{line}</div>) : <span className="muted">Codex output will appear here.</span>}</section>
     {connection === "connected" ? <form onSubmit={send}>
       <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Tell Codex what to do…" rows={3} />
@@ -99,4 +115,11 @@ export function App() {
       <div className="actions"><button className="send" type="submit">Send transcript</button><button className="stop" type="button" onClick={stop}>Stop agent</button></div>
     </form> : <button className="connect" onClick={() => connect(sessionId)}>{sessionId ? "Reconnect" : "Start session"}</button>}
   </main>;
+}
+
+function completionSpeech(lines: string[]) {
+  const useful = lines.map(line => line.trim()).filter(line => line.length > 0 && !line.startsWith("$") && !line.startsWith("Running ") && !line.startsWith("Reading "));
+  const text = useful.slice(-6).join(" ").replace(/[`*_#]/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return "Codex finished."; 
+  return text.length > 900 ? `${text.slice(0, 900)}. Response truncated.` : text;
 }
