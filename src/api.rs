@@ -8,7 +8,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
-use tokio::sync::Mutex;
+use tokio::{process::Command, sync::Mutex};
 
 use crate::{
     agent::{Agent, AgentEvent, SessionStatus},
@@ -23,6 +23,9 @@ pub struct AppState {
 }
 
 #[derive(Serialize)]
+pub struct DiffResponse { pub diff: String }
+
+#[derive(Serialize)]
 pub struct CreateSessionResponse {
     pub id: SessionId,
 }
@@ -32,6 +35,19 @@ pub async fn create_session(
 ) -> Result<Json<CreateSessionResponse>, ApiError> {
     let id = state.sessions.create(Agent::Codex, &state.repo).await.map_err(ApiError::internal)?;
     Ok(Json(CreateSessionResponse { id }))
+}
+
+pub async fn git_diff(State(state): State<AppState>) -> Result<Json<DiffResponse>, ApiError> {
+    let output = Command::new("git")
+        .args(["diff", "--no-ext-diff", "--"])
+        .current_dir(&state.repo)
+        .output()
+        .await
+        .map_err(ApiError::internal)?;
+    if !output.status.success() {
+        return Err(ApiError::internal(String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(Json(DiffResponse { diff: String::from_utf8_lossy(&output.stdout).into_owned() }))
 }
 
 pub async fn session_socket(
