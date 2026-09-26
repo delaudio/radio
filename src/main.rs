@@ -1,13 +1,16 @@
 mod agent;
+mod api;
+mod protocol;
 mod session;
 
 use std::{net::IpAddr, path::PathBuf};
 use anyhow::{Context, Result, bail};
-use axum::{Router, routing::get};
+use axum::{Router, routing::{get, post}};
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+use api::AppState;
 use session::SessionManager;
 
 #[derive(Debug, Parser)]
@@ -38,9 +41,13 @@ async fn main() -> Result<()> {
 async fn serve(repo: PathBuf, host: IpAddr, port: u16) -> Result<()> {
     let repo = validate_repo(repo)?;
     let listener = TcpListener::bind((host, port)).await.with_context(|| format!("failed to bind to {host}:{port}"))?;
-    // SessionManager becomes application state in #3 when the WebSocket API is added.
     let sessions = SessionManager::default();
-    let app = Router::new().route("/health", get(health));
+    let state = AppState { repo: repo.clone(), sessions: sessions.clone() };
+    let app = Router::new()
+        .route("/health", get(health))
+        .route("/sessions", post(api::create_session))
+        .route("/sessions/{id}/ws", get(api::session_socket))
+        .with_state(state);
     info!(repository = %repo.display(), %host, %port, "radio daemon listening");
     axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await.context("radio server failed")?;
     sessions.stop_all().await;
