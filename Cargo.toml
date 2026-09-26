@@ -1,0 +1,14 @@
+[package]
+name = "radio"
+version = "0.1.0"
+edition = "2024"
+description = "A remote control plane for coding agents"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
