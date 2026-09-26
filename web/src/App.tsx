@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { speechRecognitionConstructor, type SpeechRecognitionLike } from "./speech";
 
 type Connection = "idle" | "connecting" | "connected" | "disconnected" | "error";
 type ServerMessage = { type: "status"; status: string } | { type: "output"; text: string } | { type: "error"; message: string } | { type: "done" };
@@ -12,7 +13,11 @@ export function App() {
   const [agentStatus, setAgentStatus] = useState("not started");
   const [prompt, setPrompt] = useState("");
   const [output, setOutput] = useState<string[]>([]);
+  const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState<string>();
   const socket = useRef<WebSocket>();
+  const recognition = useRef<SpeechRecognitionLike>();
+  const voiceAvailable = Boolean(speechRecognitionConstructor());
 
   async function connect(id?: string) {
     setConnection("connecting");
@@ -42,7 +47,10 @@ export function App() {
     }
   }
 
-  useEffect(() => () => socket.current?.close(), []);
+  useEffect(() => () => {
+    socket.current?.close();
+    recognition.current?.stop();
+  }, []);
 
   function send(event: FormEvent) {
     event.preventDefault();
@@ -54,12 +62,41 @@ export function App() {
 
   function stop() { socket.current?.send(JSON.stringify({ type: "stop" })); }
 
+  function startListening() {
+    const Recognition = speechRecognitionConstructor();
+    if (!Recognition || listening) return;
+    setVoiceError(undefined);
+    const instance = new Recognition();
+    instance.continuous = true;
+    instance.interimResults = true;
+    instance.lang = navigator.language || "en-US";
+    let committed = prompt.trim();
+    instance.onresult = event => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const text = event.results[i][0]?.transcript ?? "";
+        if (event.results[i].isFinal) committed = `${committed} ${text}`.trim();
+        else interim += text;
+      }
+      setPrompt(`${committed} ${interim}`.trim());
+    };
+    instance.onerror = event => setVoiceError(event.message || event.error);
+    instance.onend = () => { setListening(false); recognition.current = undefined; };
+    recognition.current = instance;
+    instance.start();
+    setListening(true);
+  }
+
+  function stopListening() { recognition.current?.stop(); }
+
   return <main>
     <header><div><span className={`dot ${connection}`} /> radio</div><small>{connection} · {agentStatus}</small></header>
     <section className="terminal" aria-live="polite">{output.length ? output.map((line, i) => <div key={i}>{line}</div>) : <span className="muted">Codex output will appear here.</span>}</section>
     {connection === "connected" ? <form onSubmit={send}>
       <textarea value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="Tell Codex what to do…" rows={3} />
-      <div className="actions"><button className="send" type="submit">Send</button><button className="stop" type="button" onClick={stop}>Stop</button></div>
+      {voiceAvailable && <button className={`talk ${listening ? "listening" : ""}`} type="button" onPointerDown={startListening} onPointerUp={stopListening} onPointerCancel={stopListening}>{listening ? "Listening… release to stop" : "Hold to talk"}</button>}
+      {voiceError && <small className="voice-error">Voice input: {voiceError}. You can keep typing.</small>}
+      <div className="actions"><button className="send" type="submit">Send transcript</button><button className="stop" type="button" onClick={stop}>Stop agent</button></div>
     </form> : <button className="connect" onClick={() => connect(sessionId)}>{sessionId ? "Reconnect" : "Start session"}</button>}
   </main>;
 }
