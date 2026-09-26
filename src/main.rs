@@ -46,6 +46,7 @@ async fn serve(repo: PathBuf, host: IpAddr, port: u16) -> Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/sessions", post(api::create_session))
+        .route("/diff", get(api::git_diff))
         .route("/sessions/{id}/ws", get(api::session_socket))
         .with_state(state);
     info!(repository = %repo.display(), %host, %port, "radio daemon listening");
