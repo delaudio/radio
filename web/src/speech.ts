@@ -16,3 +16,19 @@ export function speechRecognitionConstructor(): SpeechRecognitionConstructor | u
   const target = window as typeof window & { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor };
   return target.SpeechRecognition ?? target.webkitSpeechRecognition;
 }
+
+export function speechSynthesisAvailable() {
+  return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+}
+
+export function speak(text: string) {
+  if (!speechSynthesisAvailable() || !text.trim()) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = navigator.language || "en-US";
+  window.speechSynthesis.speak(utterance);
+}
+
+export function stopSpeaking() {
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+}
