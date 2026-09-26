@@ -9,3 +9,4 @@ header { display: flex; justify-content: space-between; align-items: baseline; g
 form { display: grid; gap: 10px; } textarea { width: 100%; resize: none; border: 1px solid #333; border-radius: 12px; padding: 14px; background: #151515; color: inherit; font-size: 16px; }
 .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } button { min-height: 52px; border: 0; border-radius: 12px; padding: 0 18px; font-weight: 700; } .send, .connect { background: #f3f3f3; color: #0b0b0b; } .stop { background: #3a1616; color: #ffb0b0; } .connect { width: 100%; }
 @media (min-width: 640px) { main { padding-left: 24px; padding-right: 24px; } }
+\n.talk { width: 100%; min-height: 68px; background: #1b1b1b; color: #f3f3f3; border: 1px solid #3a3a3a; touch-action: none; user-select: none; -webkit-user-select: none; }\n.talk.listening { background: #4a1d1d; border-color: #8a3838; }\n.voice-error { color: #ffb0b0; line-height: 1.4; }\n
